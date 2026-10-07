@@ -264,9 +264,10 @@
     <h2 style="font-size:1rem; margin-top:0;">Resumen de la valoración</h2>
     <p class="ayuda" style="margin-bottom:14px;">Junta en un solo texto los resultados de todas las secciones que hayas evaluado — listo para copiar a la ficha clínica.</p>
     <button class="principal" onclick="generarResumen()">Generar resumen</button>
+    <div class="aviso-anomalia" id="avisoResumenDesactualizado" style="display:none; background:var(--naranjo-bg); color:var(--naranjo);">⚠ Datos modificados desde que se generó este resumen — vuelve a presionar "Generar resumen" antes de copiarlo.</div>
     <div id="resumenResultado" style="display:none; margin-top:16px;">
       <textarea id="textoResumen" readonly style="width:100%; min-height:220px; font-family:ui-monospace,monospace; font-size:0.85rem; padding:10px; border:1.5px solid var(--gris-borde); border-radius:8px; resize:vertical;"></textarea>
-      <button class="principal" style="margin-top:10px; background:var(--verde);" onclick="copiarResumen()">Copiar al portapapeles</button>
+      <button class="principal" style="margin-top:10px; background:var(--verde);" onclick="copiarResumen()" id="btnCopiarResumen">Copiar al portapapeles</button>
     </div>
   </div>
 
@@ -340,12 +341,25 @@ function etiquetaPercentil(tier, modo, valor) {
   }
   return ["< 80 mmHg", "80 mmHg (sin tramo propio)", "80 a 89 mmHg", "≥ 90 mmHg"][tier];
 }
-const ORIENTACION = {
-  0: "Presión arterial normal para su edad, sexo y talla. Continuar con los controles de salud habituales (toma de PA al menos 1 vez al año desde los 3 años, o en cada control si existen factores de riesgo).",
-  1: "Presión arterial elevada. Reforzar cambios de estilo de vida: alimentación saludable con restricción de sal, actividad física regular (60 min/día la mayoría de los días) y limitar tiempo de pantalla a máx. 2 hrs/día. Si hay sobrepeso u obesidad, derivar a nutricionista. Recontrolar la PA en 6 meses con técnica adecuada; si se mantiene elevada, tomar PA en ambas extremidades superiores + 1 inferior y evaluar derivación a nivel secundario si persiste.",
-  2: "Hipertensión arterial Estadío I. Reforzar estilo de vida saludable (alimentación, actividad física, sueño). Recontrolar en 1-2 semanas; si se mantiene elevada, tomar PA en las 4 extremidades y recontrolar en 3 meses. Si persiste elevada, derivar a nivel secundario (nefrología pediátrica o médico a cargo) para completar estudio de HTA secundaria.",
-  3: "Hipertensión arterial Estadío II. Reforzar estilo de vida saludable, tomar PA en las 4 extremidades y recontrolar en 1 semana. Derivar a nivel secundario para completar estudio de HTA secundaria. Evaluar signos de alarma (cefalea intensa, alteraciones visuales, vómitos, compromiso de conciencia) — si están presentes, derivar de inmediato a urgencias por posible crisis hipertensiva."
-};
+// Recomendación de actividad física por tramo etario, según la guía HTA MINSAL 2023, p. 26
+function textoActividadFisica(edadMeses) {
+  if (edadMeses < 12) return 'mantenerlo físicamente activo varias veces al día mediante el juego interactivo en el suelo; si aún no se desplaza, incluir al menos 30 minutos en decúbito prono distribuidos a lo largo del día mientras esté despierto';
+  if (edadMeses < 36) return 'dedicar al menos 180 minutos al día a actividades físicas de cualquier intensidad, asociadas a jugar y moverse libremente';
+  if (edadMeses < 60) return 'dedicar al menos 180 minutos al día a actividad física, de los cuales al menos 60 minutos de intensidad moderada a vigorosa';
+  if (edadMeses < 216) return 'realizar un promedio de 60 minutos diarios de actividad física moderada o vigorosa, al menos 3 días a la semana, de preferencia aeróbica';
+  return 'realizar entre 150 y 300 minutos semanales de actividad física aeróbica moderada, o entre 75 y 150 minutos de intensidad vigorosa';
+}
+
+function obtenerOrientacion(tier, edadMeses) {
+  const actividad = textoActividadFisica(edadMeses);
+  const textos = {
+    0: "Presión arterial normal para su edad, sexo y talla. Continuar con los controles de salud habituales (toma de PA al menos 1 vez al año desde los 3 años, o en cada control si existen factores de riesgo).",
+    1: `Presión arterial elevada. Reforzar cambios de estilo de vida: alimentación saludable con restricción de sal, ${actividad}, y limitar tiempo de pantalla a máx. 2 hrs/día (desde los 2 años). Si hay sobrepeso u obesidad, derivar a nutricionista. Recontrolar la PA en 6 meses con técnica adecuada; si se mantiene elevada, tomar PA en ambas extremidades superiores + 1 inferior y evaluar derivación a nivel secundario si persiste.`,
+    2: `Hipertensión arterial Estadío I. Reforzar estilo de vida saludable: alimentación, sueño adecuado, y ${actividad}. Recontrolar en 1-2 semanas; si se mantiene elevada, tomar PA en las 4 extremidades y recontrolar en 3 meses. Si persiste elevada, derivar a nivel secundario (nefrología pediátrica o médico a cargo) para completar estudio de HTA secundaria.`,
+    3: `Hipertensión arterial Estadío II. Reforzar estilo de vida saludable (incluyendo ${actividad}), tomar PA en las 4 extremidades y recontrolar en 1 semana. Derivar a nivel secundario para completar estudio de HTA secundaria. Evaluar signos de alarma (cefalea intensa, alteraciones visuales, vómitos, compromiso de conciencia) — si están presentes, derivar de inmediato a urgencias por posible crisis hipertensiva.`
+  };
+  return textos[tier];
+}
 
 function clasificarPA({ sexo, edadAnios, edadMesesExtra, tallaCm, pas, pad }) {
   const edadMeses = edadAnios * 12 + (edadMesesExtra || 0);
@@ -369,10 +383,18 @@ function clasificarPA({ sexo, edadAnios, edadMesesExtra, tallaCm, pas, pad }) {
     const idx = BRACKET_INDEX[ptalla];
     const tabla = BP_DATA.TABLAS_1_12[sexo][edad];
     const p90 = tabla["Percentil 90"], p95 = tabla["Percentil 95"], p95mas12 = tabla["Percentil 95 + 12 mmHg"];
-    tierPAS = tierDesdeUmbrales(pas, p90.PAS[idx], p95.PAS[idx], p95mas12.PAS[idx]);
-    tierPAD = tierDesdeUmbrales(pad, p90.PAD[idx], p95.PAD[idx], p95mas12.PAD[idx]);
+    const tierPAS_percentil = tierDesdeUmbrales(pas, p90.PAS[idx], p95.PAS[idx], p95mas12.PAS[idx]);
+    const tierPAD_percentil = tierDesdeUmbrales(pad, p90.PAD[idx], p95.PAD[idx], p95mas12.PAD[idx]);
+    // La Tabla 1 de la guía HTA también define, para 1-12 años, un umbral absoluto alternativo
+    // (120/80, 130/80-89, 140/90) y exige usar el MENOR de los dos umbrales (percentil o absoluto).
+    const tierPAS_absoluto = pas < 120 ? 0 : (pas < 130 ? 1 : (pas < 140 ? 2 : 3));
+    const tierPAD_absoluto = pad < 80 ? 0 : (pad < 90 ? 2 : 3);
+    tierPAS = Math.max(tierPAS_percentil, tierPAS_absoluto);
+    tierPAD = Math.max(tierPAD_percentil, tierPAD_absoluto);
     modoPAS = modoPAD = 'completo';
     contexto = `Tabla de referencia: ${sexo === 'F' ? 'niñas' : 'niños'} ${edad} años, percentil de talla p${ptalla} (talla ingresada: ${tallaCm} cm).`;
+    if (tierPAS_absoluto > tierPAS_percentil) contexto += ' PAS clasificada por umbral absoluto (más bajo que el percentil correspondiente), según indica la Tabla 1 de la guía.';
+    if (tierPAD_absoluto > tierPAD_percentil) contexto += ' PAD clasificada por umbral absoluto (más bajo que el percentil correspondiente), según indica la Tabla 1 de la guía.';
 
     const anomaliaPAS = detectarAnomaliaPA(sexo, edad, 'PAS', idx);
     const anomaliaPAD = detectarAnomaliaPA(sexo, edad, 'PAD', idx);
@@ -390,7 +412,7 @@ function clasificarPA({ sexo, edadAnios, edadMesesExtra, tallaCm, pas, pad }) {
   return {
     categoria: NOMBRES_TIER[tierFinal],
     tier: tierFinal,
-    orientacion: ORIENTACION[tierFinal],
+    orientacion: obtenerOrientacion(tierFinal, edadMeses),
     contexto,
     avisoAnomalia: avisosAnomalia.length ? AVISO_ANOMALIA + ' ' + avisosAnomalia.join(' ') : null,
     pas: { valor: pas, tier: tierPAS, etiqueta: etiquetaPercentil(tierPAS, modoPAS, pas), categoria: NOMBRES_TIER[tierPAS] },
@@ -405,6 +427,32 @@ function diasEntreFechas(f1, f2) {
   return Math.round((d2 - d1) / (1000 * 60 * 60 * 24));
 }
 
+// Diferencia de fechas en meses y días calendario reales (no una aproximación por promedio de días/mes)
+function diferenciaCalendario(fechaInicio, fechaFin) {
+  const d1 = new Date(fechaInicio + 'T00:00:00');
+  const d2 = new Date(fechaFin + 'T00:00:00');
+  let anios = d2.getFullYear() - d1.getFullYear();
+  let meses = d2.getMonth() - d1.getMonth();
+  let dias = d2.getDate() - d1.getDate();
+  if (dias < 0) {
+    meses -= 1;
+    const ultimoDiaMesAnterior = new Date(d2.getFullYear(), d2.getMonth(), 0).getDate();
+    dias += ultimoDiaMesAnterior;
+  }
+  if (meses < 0) { anios -= 1; meses += 12; }
+  return { mesesTotales: anios * 12 + meses, dias };
+}
+function formatoEdadCalendario(fechaInicio, fechaFin) {
+  const { mesesTotales, dias } = diferenciaCalendario(fechaInicio, fechaFin);
+  return `${mesesTotales} meses, ${dias} días`;
+}
+// Suma N días a una fecha (string 'YYYY-MM-DD') y devuelve otra fecha en el mismo formato
+function sumarDias(fechaStr, n) {
+  const d = new Date(fechaStr + 'T00:00:00');
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
 function clasificarPrematurez(semanas, dias, pesoGramos) {
   const semanasTotales = semanas + dias / 7;
   if (semanasTotales >= 37) return { clase: 'Término', limiteMeses: 0 };
@@ -417,27 +465,28 @@ function clasificarPrematurez(semanas, dias, pesoGramos) {
 function calcularEdadCorregida({ fechaNacimiento, fechaEvaluacion, semanasGestacion, diasGestacionExtra, pesoGramos }) {
   const { clase, limiteMeses } = clasificarPrematurez(semanasGestacion, diasGestacionExtra, pesoGramos);
   const edadCronologicaDias = diasEntreFechas(fechaNacimiento, fechaEvaluacion);
-
-  function formatoEdad(dias) {
-    const meses = Math.floor(dias / 30.44);
-    const diasRestantes = Math.round(dias - meses * 30.44);
-    return `${meses} meses, ${diasRestantes} días`;
-  }
+  const edadCronologicaTexto = formatoEdadCalendario(fechaNacimiento, fechaEvaluacion);
 
   if (clase === 'Término') {
-    return { clase, aplicaCorreccion: false, edadCronologicaTexto: formatoEdad(edadCronologicaDias), edadCorregidaTexto: '—', mensaje: 'Recién nacido de término: no se aplica edad corregida.' };
+    return { clase, aplicaCorreccion: false, edadCronologicaTexto, edadCorregidaTexto: '—', mensaje: 'Recién nacido de término: no se aplica edad corregida.' };
   }
 
   const diasGestacionTotal = semanasGestacion * 7 + diasGestacionExtra;
   const diferenciaDias = (40 * 7) - diasGestacionTotal;
   const edadCorregidaDias = Math.max(0, edadCronologicaDias - diferenciaDias);
+  // Fecha "equivalente de término" (fecha probable de parto): nacimiento + la diferencia de días hasta las 40 semanas.
+  // La edad corregida es la diferencia calendario real entre esa fecha y la fecha de evaluación.
+  const fechaTermino = sumarDias(fechaNacimiento, diferenciaDias);
+  const edadCorregidaTexto = edadCorregidaDias > 0 ? formatoEdadCalendario(fechaTermino, fechaEvaluacion) : '0 meses, 0 días';
   const limiteDias = limiteMeses * 30.44;
   const corrigioVigente = edadCronologicaDias <= limiteDias;
 
   return {
     clase, limiteMeses,
-    edadCronologicaTexto: formatoEdad(edadCronologicaDias),
-    edadCorregidaTexto: formatoEdad(edadCorregidaDias),
+    edadCronologicaDias,
+    edadCorregidaDias,
+    edadCronologicaTexto,
+    edadCorregidaTexto,
     aplicaCorreccion: corrigioVigente,
     mensaje: corrigioVigente
       ? `Usar edad corregida (corrección vigente hasta los ${limiteMeses} meses cronológicos).`
@@ -448,13 +497,13 @@ function calcularEdadCorregida({ fechaNacimiento, fechaEvaluacion, semanasGestac
 function toggleSeccionPA() {
   const activo = document.getElementById('quierePA').checked;
   document.getElementById('seccionPA').style.display = activo ? 'block' : 'none';
-  if (!activo) document.getElementById('resultado').style.display = 'none';
+  if (!activo) invalidarPA();
 }
 
 function toggleSeccionPrematuro() {
   const activo = document.getElementById('esPrematuro').checked;
   document.getElementById('seccionPrematuro').style.display = activo ? 'block' : 'none';
-  if (!activo) document.getElementById('resultadoEdadCorregida').style.display = 'none';
+  if (!activo) invalidarEdadCorregida();
 }
 
 function interpretarEdadCorregida() {
@@ -466,6 +515,18 @@ function interpretarEdadCorregida() {
 
   if (isNaN(semanas) || isNaN(peso) || !fNac || !fEval) {
     alert('Completa semanas de gestación, peso de nacimiento, fecha de nacimiento y fecha de evaluación.');
+    return;
+  }
+  if (peso <= 0 || !Number.isFinite(peso)) {
+    alert('El peso de nacimiento debe ser un valor numérico mayor que cero.');
+    return;
+  }
+  if (semanas <= 0 || semanas > 45) {
+    alert('Las semanas de gestación ingresadas no son fisiológicamente plausibles. Revísalas.');
+    return;
+  }
+  if (new Date(fEval + 'T00:00:00') < new Date(fNac + 'T00:00:00')) {
+    alert('La fecha de evaluación no puede ser anterior a la fecha de nacimiento. Revisa las fechas ingresadas.');
     return;
   }
 
@@ -702,7 +763,7 @@ let ultimaEdadCorregidaMeses = null; // se llena cuando se calcula edad corregid
 function toggleSeccionNutricional() {
   const activo = document.getElementById('quiereNutricional').checked;
   document.getElementById('seccionNutricional').style.display = activo ? 'block' : 'none';
-  if (!activo) document.getElementById('resultadoNutricional').style.display = 'none';
+  if (!activo) invalidarNutricional();
 }
 
 function actualizarVisibilidadCintura() {
@@ -732,6 +793,10 @@ function interpretarNutricional() {
 
   if (isNaN(peso) || isNaN(talla)) {
     alert('Completa edad, peso y talla.');
+    return;
+  }
+  if (!Number.isFinite(peso) || !Number.isFinite(talla) || peso <= 0 || talla <= 0) {
+    alert('El peso y la talla deben ser valores numéricos mayores que cero.');
     return;
   }
   if (edadMeses > 228) {
@@ -792,6 +857,32 @@ function interpretarNutricional() {
 let ultimoPA = null;
 let ultimoEdadCorregidaResultado = null;
 let ultimoNutricional = null;
+let resumenGenerado = false;
+
+function marcarResumenDesactualizado() {
+  if (!resumenGenerado) return; // si nunca se ha generado, no hay nada que marcar como obsoleto
+  document.getElementById('avisoResumenDesactualizado').style.display = 'block';
+  document.getElementById('btnCopiarResumen').disabled = true;
+}
+
+function invalidarPA() {
+  if (ultimoPA !== null) { ultimoPA = null; marcarResumenDesactualizado(); }
+  document.getElementById('resultado').style.display = 'none';
+}
+function invalidarEdadCorregida() {
+  if (ultimoEdadCorregidaResultado !== null) { ultimoEdadCorregidaResultado = null; marcarResumenDesactualizado(); }
+  ultimaEdadCorregidaMeses = null;
+  document.getElementById('resultadoEdadCorregida').style.display = 'none';
+  invalidarNutricional(); // el módulo nutricional puede depender de la edad corregida
+}
+function invalidarNutricional() {
+  if (ultimoNutricional !== null) { ultimoNutricional = null; marcarResumenDesactualizado(); }
+  document.getElementById('resultadoNutricional').style.display = 'none';
+}
+function invalidarPAyNutricional() {
+  invalidarPA();
+  invalidarNutricional();
+}
 
 function generarResumen() {
   let texto = `RESUMEN DE VALORACIÓN — Interpretador Clínico Infantil\n`;
@@ -836,12 +927,19 @@ function generarResumen() {
   }
 
   if (!huboAlgo) {
-    alert('Aún no has generado ningún resultado. Evalúa al menos una sección primero.');
+    document.getElementById('resumenResultado').style.display = 'none';
+    document.getElementById('avisoResumenDesactualizado').style.display = 'none';
+    resumenGenerado = false;
+    alert('Aún no has generado ningún resultado vigente. Evalúa al menos una sección antes de generar el resumen.');
     return;
   }
 
   document.getElementById('textoResumen').value = texto;
   document.getElementById('resumenResultado').style.display = 'block';
+
+  resumenGenerado = true;
+  document.getElementById('avisoResumenDesactualizado').style.display = 'none';
+  document.getElementById('btnCopiarResumen').disabled = false;
 }
 
 function copiarResumen() {
@@ -878,6 +976,18 @@ function interpretar() {
   if (isNaN(pas) || isNaN(pad)) { alert('Ingresa los valores de presión arterial (PAS y PAD).'); return; }
   if (anios >= 1 && anios <= 12 && isNaN(talla)) { alert('Para este rango de edad se necesita la talla en cm.'); return; }
 
+  if (!Number.isFinite(pas) || !Number.isFinite(pad) || pas <= 0 || pad <= 0) {
+    alert('La PAS y la PAD deben ser valores numéricos mayores que cero.');
+    return;
+  }
+  if (pad >= pas) {
+    alert('La PAD no puede ser mayor o igual que la PAS. Revisa los valores ingresados.');
+    return;
+  }
+  if (pas > 250 || pad > 200) {
+    if (!confirm(`Los valores ingresados (PAS ${pas} / PAD ${pad} mmHg) son extremadamente altos. ¿Confirmas que son correctos?`)) return;
+  }
+
   const r = clasificarPA({ sexo, edadAnios: anios, edadMesesExtra: meses, tallaCm: talla, pas, pad });
 
   document.getElementById('txtPAS').textContent = `${r.pas.valor} mmHg — ${r.pas.etiqueta} (${r.pas.categoria})`;
@@ -903,6 +1013,15 @@ function interpretar() {
 }
 
 actualizarVisibilidadTalla();
+
+// --- Invalidación de resultados obsoletos al modificar datos de entrada ---
+function escuchar(ids, fn) {
+  ids.forEach(id => { const el = document.getElementById(id); el.addEventListener('input', fn); el.addEventListener('change', fn); });
+}
+escuchar(['sexo', 'anios', 'meses'], invalidarPAyNutricional);
+escuchar(['talla', 'pas', 'pad'], invalidarPA);
+escuchar(['pesoNutricional', 'tallaNutricional', 'cinturaNutricional', 'cefalicoNutricional'], invalidarNutricional);
+escuchar(['semGestacion', 'diasGestacion', 'pesoNacimiento', 'fechaNacimiento', 'fechaEvaluacion'], invalidarEdadCorregida);
 </script>
 </body>
 </html>
